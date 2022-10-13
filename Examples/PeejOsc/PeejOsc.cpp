@@ -11,6 +11,10 @@ const int NUM_SCALES = 2; // TODO: make scales a proper enum, prob controled by 
 const int MAJOR = 0;
 const int MINOR = 1;
 
+int knob_offset = 0;
+int individual_offset = 0;
+bool individual_trigger = false;
+
 Hardware hw;
 Oscillator osc[NUM_OSC];
 
@@ -22,17 +26,36 @@ float semitone_offsets[NUM_SCALES][NUM_OSC] = {
 
 void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, size_t size)
 {
-    /** This filters, and prepares all of the module's controls for us. */
     hw.ProcessAllControls();
 
 	// TODO: Get the v/oct from an input, use as part of the base freq? (this is mapped in hz)
-    float freq = fmap(hw.GetKnobValue(KNOB_WARP), 10.0, 1500.0, Mapping::LOG);
+    float knob_freq = fmap(hw.GetKnobValue(KNOB_WARP), 10.0, 1500.0, Mapping::LOG);
+	float warp_input = hw.GetCvValue(CV_WARP);
+	float freq = (powf(2.0f, (warp_input * 5.0f)) * knob_freq);
     float volume = hw.GetKnobValue(KNOB_BLUR);
 
-	//  TODO: maybe call this Spread?
+	//  time knob is the chord size for the chord output
 	int chord_size = floor(fmap(hw.GetKnobValue(KNOB_TIME), 1.0, 6.0));
 
-	int individual_offset = floor(fmap(hw.GetKnobValue(KNOB_REFLECT), 1.0, chord_size + 1));
+	// reflect knob is the offset for the individual output
+
+	int current_knob_offset = floor(fmap(hw.GetKnobValue(KNOB_REFLECT), 1.0, chord_size + 1));
+	if (knob_offset != current_knob_offset) {
+		knob_offset = current_knob_offset;
+		individual_offset = current_knob_offset;
+	}
+
+	// the reverse triggers the next individual offset (arpeggio-esque)
+	bool current_individual_trigger = hw.GetCvValue(CV_ATMOSPHERE) > 0.5;
+	if (current_individual_trigger != individual_trigger) {
+		individual_trigger = current_individual_trigger;
+		if (individual_trigger) {
+			individual_offset += 1.0;
+			if (individual_offset == (chord_size+1.0)) {
+				individual_offset = 1.0;
+			} 
+		}
+	}
 
 	hw.SetLed(LED_1, individual_offset == 1.0, individual_offset == 1.0, chord_size >= 1.0);
 	hw.SetLed(LED_2, individual_offset == 2.0, individual_offset == 2.0, chord_size >= 2.0);
@@ -58,34 +81,6 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
 		}
 		out[0][i] = chord_output * volume;
 		out[1][i] = individual_output * volume;
-
-		// if (chord_size == 1) {
-		// 	osc[0].SetFreq(freq);
-	    //     out[0][i] = osc[0].Process() * volume;
-		// } else if (chord_size == 2) {
-		// 	osc[0].SetFreq(freq);
-		// 	osc[1].SetFreq(freq * pow(2.0, (semitone_offsets[MINOR][1]/12.0)));
-	    //     out[0][i] = (osc[0].Process() + osc[1].Process()) * volume;
-		// } else if (chord_size == 3) {
-		// 	osc[0].SetFreq(freq);
-		// 	osc[1].SetFreq(freq * pow(2.0, (semitone_offsets[MINOR][1]/12.0)));
-		// 	osc[2].SetFreq(freq * pow(2.0, (semitone_offsets[MINOR][2]/12.0)));
-	    //     out[0][i] = (osc[0].Process() + osc[1].Process() + osc[2].Process()) * volume;
-		// } else if (chord_size == 4) {
-		// 	osc[0].SetFreq(freq);
-		// 	osc[1].SetFreq(freq * pow(2.0, (semitone_offsets[MINOR][1]/12.0)));
-		// 	osc[2].SetFreq(freq * pow(2.0, (semitone_offsets[MINOR][2]/12.0)));
-		// 	osc[3].SetFreq(freq * pow(2.0, (semitone_offsets[MINOR][3]/12.0)));
-	    //     out[0][i] = (osc[0].Process() + osc[1].Process() + osc[2].Process() + osc[3].Process()) * volume;
-		// } else if (chord_size == 5) {
-		// 	osc[0].SetFreq(freq);
-		// 	osc[1].SetFreq(freq * pow(2.0, (semitone_offsets[MINOR][1]/12.0)));
-		// 	osc[2].SetFreq(freq * pow(2.0, (semitone_offsets[MINOR][2]/12.0)));
-		// 	osc[3].SetFreq(freq * pow(2.0, (semitone_offsets[MINOR][3]/12.0)));
-		// 	osc[4].SetFreq(freq * pow(2.0, (semitone_offsets[MINOR][4]/12.0)));
-	    //     out[0][i] = (osc[0].Process() + osc[1].Process() + osc[2].Process() + osc[3].Process() + osc[4].Process()) * volume;
-		// }
-		// out[1][i] = osc[individual_offset - 1].Process() * volume;
     }
 }
 
